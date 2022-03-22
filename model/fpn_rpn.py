@@ -165,7 +165,7 @@ class fpn_rpn(nn.Module):
         self.backbone.up1.forward =types.MethodType(up1_forward,self.backbone.up1)
         self.backbone.out.forward =types.MethodType(out_forward,self.backbone.out)
         self.backbone.forward = types.MethodType(backbone_forward,self.backbone)
-        self.rpn = RPN(256,9)
+        self.rpn = RPN(256,28)
     
     def forward(self,x):
         x,p2 = self.backbone(x)

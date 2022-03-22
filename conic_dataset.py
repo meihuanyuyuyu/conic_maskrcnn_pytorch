@@ -8,7 +8,7 @@ class conic_unet_data(Dataset):
     def __init__(self,transforms:list) -> None:
         super().__init__()
         self.transfroms = transforms
-        self.imgs = (torch.from_numpy(np.load('project_conic/CoNIC_Challenge/images.npy'))//255).permute(0,3,1,2).float()
+        self.imgs = (torch.from_numpy(np.load('project_conic/CoNIC_Challenge/images.npy'))/255).permute(0,3,1,2).float()
         self.labels = (torch.from_numpy(np.load('project_conic/CoNIC_Challenge/labels.npy').astype(np.float32))).permute(0,3,1,2)[:,1:]
         
     def __len__(self):
@@ -30,7 +30,7 @@ class conic_stage1_data(Dataset):
     def __init__(self,transf:list=[]) -> None:
         super().__init__()
         self.transf = transf
-        self.imgs = (torch.from_numpy(np.load('project_conic/CoNIC_Challenge/images.npy').astype(np.float64))//255).permute(0,3,1,2).float()
+        self.imgs = (torch.from_numpy(np.load('project_conic/CoNIC_Challenge/images.npy').astype(np.float64))/255).permute(0,3,1,2).float()
         self.labels = os.listdir('project_conic/CoNIC_Challenge/stage1_labels')
         self.path = 'project_conic/CoNIC_Challenge/stage1_labels'
 

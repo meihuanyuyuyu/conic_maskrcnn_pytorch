@@ -27,25 +27,31 @@ def general_anchors(label:torch.Tensor,anchor_wh:torch.Tensor,rate=4)->torch.Ten
     xy2 = location + anchor_wh.unsqueeze(1)*0.5
     anchors = torch.cat([xy1,xy2],dim=-1).view(-1,4)
     anchors = (anchors+0.5) * 4
-    return  anchors,h,w,k
+    return  clip_boxes_to_image(anchors,[h,w]),h,w,k
 
 
 
 def apply_box_delt(boxes:torch.Tensor,deltas:torch.Tensor)->torch.Tensor:
     r'boxes(rois,x1,y1,x2,y2),deltas(rois,dx,dy,log(dw),log(dh))  return:(rois,4)'
     boxes = box_convert(boxes,'xyxy','xywh')
-    boxes[:,2]= boxes[:,2:]*deltas[:,:2] + boxes[:,:2]
+    boxes[:,:2]= boxes[:,2:]*deltas[:,:2] + boxes[:,:2]
     boxes[:,2:] = boxes[:,2:]*torch.exp(deltas[:,2:])
+    boxes = box_convert(boxes,'xywh','xyxy')
     return boxes
     
 
 
-def generate_box_labels(g_anchors:torch.Tensor,ground_truth:torch.Tensor,h,w,k,threshold:float=0.7)->dict:
+def generate_box_labels(g_anchors:torch.Tensor,ground_truth:torch.Tensor,h,w,k)->dict:
     r'g_a:(hwk,4),gt:(n,4)'
     #print('gt.size()',ground_truth.size())
     ious = box_iou(g_anchors,ground_truth).view(k,h,w,-1)# (khw,num)iou
-    positive = (ious>threshold).sum(-1).bool() # (h,w,k) 在生成框里有正例
-    negative = (ious<(1-threshold)).sum(-1)==ground_truth.size(0) # (h,w,k)
+    positive = (ious>0.7).sum(-1).bool() # (k,h,w) 在生成框里有正例
+    num_positive = positive.sum()
+    negative = (ious<0.2).sum(-1)==ground_truth.size(0) # (k,h,w)
+    num_negative = negative.sum()
+    prob = num_positive/num_negative
+    prob=torch.rand(negative.shape,device='cuda')<=prob
+    negative*=prob
     g_anchors = box_convert(g_anchors,'xyxy','xywh').view(k,h,w,-1)
     ground_truth = box_convert(ground_truth,'xyxy','xywh')
     #print(g_anchors.size(),g_anchors[...,2:].max(),ground_truth[...,2:].min())
@@ -53,21 +59,21 @@ def generate_box_labels(g_anchors:torch.Tensor,ground_truth:torch.Tensor,h,w,k,t
     max_iou = ground_truth[max_iou_index]# (k,h,w,,4)
     dxdy = (max_iou[...,:2] -g_anchors[...,:2])/g_anchors[...,2:]
     dwdh = torch.log(max_iou[...,2:] /g_anchors[...,2:])
-    regression = torch.cat([dxdy,dwdh],dim=-1).permute(3,0,1,2)
+    regression = torch.cat([dxdy,dwdh],dim=-1).permute(3,0,1,2) #              reg:(4,k,h,w)
     dict = {'true':positive,'false':negative,'t':regression}
     return dict
 
 
 def proposal_layer(g_anchors:torch.Tensor,cls_score:torch.Tensor,regression:torch.Tensor,h=256,w=256):
-    r'g_anchors:(h,w,k,xyxy),cls_score:(2,h,w,k),regression:(4,h,w,k)'
+    r'g_anchors:(k,h,w,4),cls_score:(k,h,w),regression:(4,k,h,w)'
 
-    positive_anchors = torch.argmax(cls_score,dim=0).bool()
-    cls_score = cls_score[1][positive_anchors]
+    positive_anchors = cls_score>=0.5
+    cls_score = cls_score[positive_anchors]
     positive_reg = regression.permute(1,2,3,0)[positive_anchors] 
     positive_xy = g_anchors[positive_anchors]
     revised_positive = apply_box_delt(positive_xy,positive_reg)
     revised_positive = clip_boxes_to_image(revised_positive,[256,256])
-    remaining_index = remove_small_boxes(revised_positive,1.0)
+    remaining_index = remove_small_boxes(revised_positive,3)
     remaining_index = nms(revised_positive[remaining_index],cls_score[remaining_index],0.7)
     revised_positive = revised_positive[remaining_index]
     return revised_positive
